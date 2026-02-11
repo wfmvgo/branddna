@@ -50,10 +50,26 @@ export async function fetchAndParseSite(inputUrl: string): Promise<SiteData> {
     doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || null
   );
 
-  // Logo detection — prioritize larger/more specific matches
-  let logoUrl: string | null = null;
+  // Extract domain for external logo APIs
+  let domain = '';
+  try { domain = new URL(baseUrl).hostname; } catch {}
 
-  // 1. Try SVG logo first (highest quality)
+  // === LOGO DETECTION — priority chain ===
+  const logoCandidates: string[] = [];
+
+  // 1. Clearbit Logo API (best quality, real logo with text)
+  if (domain) {
+    logoCandidates.push(`https://logo.clearbit.com/${domain}?size=400`);
+  }
+
+  // 2. SVG icon from <link> tags (e.g. /icon.svg — common in modern sites)
+  const svgIconLink = doc.querySelector('link[rel="icon"][type="image/svg+xml"], link[href$=".svg"][rel="icon"]');
+  if (svgIconLink) {
+    const href = resolveUrl(baseUrl, svgIconLink.getAttribute('href'));
+    if (href) logoCandidates.push(href);
+  }
+
+  // 3. SVG logo in HTML (header area)
   const svgLogoSelectors = [
     'header svg[class*="logo"]', '.logo svg', '#logo svg', '[class*="logo"] svg',
     'a[class*="logo"] svg', 'header a:first-child svg',
@@ -62,50 +78,75 @@ export async function fetchAndParseSite(inputUrl: string): Promise<SiteData> {
     const el = doc.querySelector(sel);
     if (el) {
       const svgStr = new XMLSerializer().serializeToString(el);
-      logoUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgStr)))}`;
+      logoCandidates.push(`data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgStr)))}`);
       break;
     }
   }
 
-  // 2. Try image logo with explicit logo classes/attributes
-  if (!logoUrl) {
-    const imgLogoSelectors = [
-      'img[src*="logo" i]', 'img[alt*="logo" i]',
-      'a.logo img', '.logo img', '#logo img',
-      '[class*="logo"] img', '[id*="logo"] img',
-      'a.navbar-brand img', '.navbar-brand img',
-      'header a img', 'img[class*="brand" i]',
-    ];
-    for (const sel of imgLogoSelectors) {
-      const el = doc.querySelector(sel);
-      if (el) {
-        const src = el.getAttribute('src') || el.getAttribute('data-src');
-        logoUrl = resolveUrl(baseUrl, src);
-        if (logoUrl) break;
-      }
+  // 4. IMG logo in HTML
+  const imgLogoSelectors = [
+    'img[src*="logo" i]', 'img[alt*="logo" i]',
+    'a.logo img', '.logo img', '#logo img',
+    '[class*="logo"] img', '[id*="logo"] img',
+    'a.navbar-brand img', '.navbar-brand img',
+    'header a img', 'img[class*="brand" i]',
+  ];
+  for (const sel of imgLogoSelectors) {
+    const el = doc.querySelector(sel);
+    if (el) {
+      const src = el.getAttribute('src') || el.getAttribute('data-src');
+      const resolved = resolveUrl(baseUrl, src);
+      if (resolved) { logoCandidates.push(resolved); break; }
     }
   }
 
-  // 3. Try apple-touch-icon (usually high quality brand icon)
-  let appleTouchIcon: string | null = null;
+  // 5. Apple touch icon (usually high-quality brand mark)
   const appleIcon = doc.querySelector('link[rel="apple-touch-icon"], link[rel="apple-touch-icon-precomposed"]');
   if (appleIcon) {
-    appleTouchIcon = resolveUrl(baseUrl, appleIcon.getAttribute('href'));
+    const href = resolveUrl(baseUrl, appleIcon.getAttribute('href'));
+    if (href) logoCandidates.push(href);
   }
 
-  // 4. Favicon as last resort
+  // 6. Large favicon
+  const iconLink = doc.querySelector(
+    'link[rel="icon"][sizes="192x192"], link[rel="icon"][sizes="128x128"], link[rel="icon"][sizes="96x96"], link[rel="icon"], link[rel="shortcut icon"]'
+  );
   let faviconUrl: string | null = null;
-  const iconLink = doc.querySelector('link[rel="icon"][sizes="192x192"], link[rel="icon"][sizes="128x128"], link[rel="icon"][sizes="96x96"], link[rel="icon"], link[rel="shortcut icon"]');
   if (iconLink) {
     faviconUrl = resolveUrl(baseUrl, iconLink.getAttribute('href'));
   }
   if (!faviconUrl) {
     faviconUrl = resolveUrl(baseUrl, '/favicon.ico');
   }
+  if (faviconUrl) logoCandidates.push(faviconUrl);
 
-  // Use apple-touch-icon if no logo found (it's usually the brand mark)
-  if (!logoUrl && appleTouchIcon) {
-    logoUrl = appleTouchIcon;
+  // 7. Google high-res favicon API
+  if (domain) {
+    logoCandidates.push(`https://www.google.com/s2/favicons?domain=${domain}&sz=128`);
+  }
+
+  // Pick the best logo — validate each candidate with a quick check
+  let logoUrl: string | null = null;
+  for (const candidate of logoCandidates) {
+    if (candidate.startsWith('data:')) {
+      logoUrl = candidate;
+      break;
+    }
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const check = await fetch(`/api/proxy-image?url=${encodeURIComponent(candidate)}`, {
+        method: 'HEAD',
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (check.ok) {
+        logoUrl = candidate;
+        break;
+      }
+    } catch {
+      continue;
+    }
   }
 
   // Colors from inline styles and style tags
@@ -182,7 +223,7 @@ export async function fetchAndParseSite(inputUrl: string): Promise<SiteData> {
   return {
     title,
     description,
-    logoUrl: proxyUrl(logoUrl) || proxyUrl(ogImage),
+    logoUrl: proxyUrl(logoUrl),
     faviconUrl: proxyUrl(faviconUrl),
     colors: Array.from(colors).slice(0, 30),
     fonts: Array.from(fonts).slice(0, 10),
