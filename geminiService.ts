@@ -105,6 +105,9 @@ export const analyzeBrandIdentity = async (websiteInput: string): Promise<Busine
   if (siteData?.ogImage) {
     data.brandImageUrl = siteData.ogImage;
   }
+  if (siteData?.brandImages && siteData.brandImages.length > 0) {
+    data.brandImages = siteData.brandImages;
+  }
   if (!data.logoUrl && siteData?.faviconUrl) {
     data.logoUrl = siteData.faviconUrl;
   }

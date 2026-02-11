@@ -23,6 +23,7 @@ export interface BusinessDNA {
   imageStylePrompt: string; // Used internally to generate stock images
   logoUrl?: string; // Populated after image generation
   brandImageUrl?: string; // Populated after image generation
+  brandImages?: string[]; // Key brand images scraped from site
   sources?: string[]; // URLs found during grounding
 }
 

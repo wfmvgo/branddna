@@ -8,6 +8,7 @@ export interface SiteData {
   headings: string[];
   bodyText: string;
   ogImage: string | null;
+  brandImages: string[];
   baseUrl: string;
 }
 
@@ -220,6 +221,87 @@ export async function fetchAndParseSite(inputUrl: string): Promise<SiteData> {
     .trim()
     .slice(0, 2000);
 
+  // === BRAND IMAGES — collect key visual assets from the site ===
+  const brandImageSet = new Set<string>();
+  const skipPatterns = /icon|favicon|logo|pixel|tracking|analytics|badge|button|arrow|sprite|spacer|blank|1x1|transparent/i;
+  const imageExtensions = /\.(jpg|jpeg|png|webp|avif|gif|svg)(\?|$)/i;
+  const minSize = 80; // minimum width/height to filter out tiny images
+
+  // OG image first (usually the best hero/brand image)
+  if (ogImage) brandImageSet.add(ogImage);
+
+  // OG image alternatives (twitter:image, etc.)
+  const twitterImage = resolveUrl(
+    baseUrl,
+    doc.querySelector('meta[name="twitter:image"], meta[property="twitter:image"]')?.getAttribute('content') || null
+  );
+  if (twitterImage) brandImageSet.add(twitterImage);
+
+  // Hero/banner images (large prominent images in main sections)
+  const heroSelectors = [
+    'section img', '.hero img', '.banner img', '[class*="hero"] img', '[class*="banner"] img',
+    '.slider img', '.carousel img', '[class*="slide"] img',
+    'main img', '.content img', 'article img',
+    '[class*="feature"] img', '[class*="promo"] img', '[class*="card"] img',
+    '.product img', '[class*="product"] img',
+    'picture source', 'picture img',
+  ];
+
+  for (const sel of heroSelectors) {
+    doc.querySelectorAll(sel).forEach(el => {
+      const src = el.getAttribute('src') || el.getAttribute('data-src') || 
+                  el.getAttribute('data-lazy-src') || el.getAttribute('srcset')?.split(',')[0]?.trim()?.split(' ')[0];
+      if (!src) return;
+      
+      // Skip tiny/tracking images
+      const w = parseInt(el.getAttribute('width') || '0');
+      const h = parseInt(el.getAttribute('height') || '0');
+      if ((w > 0 && w < minSize) || (h > 0 && h < minSize)) return;
+      
+      // Skip utility images
+      if (skipPatterns.test(src) || skipPatterns.test(el.getAttribute('class') || '')) return;
+      
+      const resolved = resolveUrl(baseUrl, src);
+      if (resolved) brandImageSet.add(resolved);
+    });
+  }
+
+  // Background images from inline styles
+  doc.querySelectorAll('[style*="background"]').forEach(el => {
+    const style = el.getAttribute('style') || '';
+    const bgMatch = style.match(/url\(['"]?([^'")\s]+)['"]?\)/);
+    if (bgMatch && bgMatch[1]) {
+      const src = bgMatch[1];
+      if (!skipPatterns.test(src) && imageExtensions.test(src)) {
+        const resolved = resolveUrl(baseUrl, src);
+        if (resolved) brandImageSet.add(resolved);
+      }
+    }
+  });
+
+  // All remaining <img> tags not yet captured (filter by likely quality)
+  doc.querySelectorAll('img').forEach(el => {
+    const src = el.getAttribute('src') || el.getAttribute('data-src');
+    if (!src) return;
+    const w = parseInt(el.getAttribute('width') || '0');
+    const h = parseInt(el.getAttribute('height') || '0');
+    if ((w > 0 && w < minSize) || (h > 0 && h < minSize)) return;
+    if (skipPatterns.test(src) || skipPatterns.test(el.getAttribute('alt') || '')) return;
+    // Prefer images with real extensions
+    if (!imageExtensions.test(src) && !src.startsWith('data:')) return;
+    const resolved = resolveUrl(baseUrl, src);
+    if (resolved) brandImageSet.add(resolved);
+  });
+
+  // Remove logo URL from brand images to avoid duplication
+  if (logoUrl) brandImageSet.delete(logoUrl);
+
+  // Proxy all brand images and limit to 12
+  const brandImages = Array.from(brandImageSet)
+    .slice(0, 12)
+    .map(url => proxyUrl(url))
+    .filter((url): url is string => url !== null);
+
   return {
     title,
     description,
@@ -230,6 +312,7 @@ export async function fetchAndParseSite(inputUrl: string): Promise<SiteData> {
     headings: headings.slice(0, 10),
     bodyText,
     ogImage: proxyUrl(ogImage),
+    brandImages,
     baseUrl,
   };
 }

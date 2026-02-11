@@ -52,21 +52,36 @@ export const BrandDashboard: React.FC<BrandDashboardProps> = ({ data, onReset })
             </div>
           </div>
 
-           {/* Brand Image Section */}
-           <div className="glass-card rounded-3xl p-2 relative overflow-hidden group">
-            {data.brandImageUrl ? (
+           {/* Brand Images Gallery */}
+           {data.brandImages && data.brandImages.length > 0 ? (
+             <div className="glass-card rounded-3xl p-4">
+               <h3 className="text-zinc-300 font-medium mb-3 px-2">Изображения бренда</h3>
+               <div className="grid grid-cols-2 gap-2">
+                 {data.brandImages.slice(0, 12).map((imgUrl, idx) => (
+                   <div key={idx} className="relative overflow-hidden rounded-xl bg-zinc-800 group aspect-square">
+                     <img
+                       src={imgUrl}
+                       alt={`Brand ${idx + 1}`}
+                       className="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-300"
+                       loading="lazy"
+                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                     />
+                   </div>
+                 ))}
+               </div>
+             </div>
+           ) : data.brandImageUrl ? (
+             <div className="glass-card rounded-3xl p-2 relative overflow-hidden group">
                 <img 
                   src={data.brandImageUrl} 
                   alt="Brand Mood" 
                   className="w-full h-64 object-cover rounded-2xl opacity-80 group-hover:opacity-100 transition-opacity"
                 />
-            ) : (
-                <div className="w-full h-64 bg-zinc-800 rounded-2xl animate-pulse"></div>
-            )}
-             <div className="absolute bottom-6 left-6 bg-black/50 backdrop-blur-md px-4 py-2 rounded-full">
-               <span className="text-white text-xs font-medium">Изображение бренда</span>
+               <div className="absolute bottom-6 left-6 bg-black/50 backdrop-blur-md px-4 py-2 rounded-full">
+                 <span className="text-white text-xs font-medium">Изображение бренда</span>
+               </div>
              </div>
-           </div>
+           ) : null}
         </div>
 
         {/* Right Col: Details */}
