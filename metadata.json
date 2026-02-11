@@ -1,0 +1,5 @@
+{
+  "name": "BrandDNA",
+  "description": "AI-powered brand identity generator that creates a complete business DNA (logo, colors, typography, tone) from a website URL.",
+  "requestFramePermissions": []
+}
